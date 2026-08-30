@@ -1,0 +1,58 @@
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = "softapp/docker-ec2-web"
+        TAG = "555"
+        CONTAINER_NAME = "docker-ec2-container"
+    }
+
+    stages {
+
+        stage('Clone Code') {
+            steps {
+                git branch: 'main',
+                credentialsId: 'gitlab-creds',
+                url: 'https://gitlab.com/SOFTen-TECHNOLOGIES/docker-ec2-web.git'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh 'docker build -t $IMAGE_NAME:$TAG /docker-ec2-web-main/.'
+            }
+        }
+
+        stage('Docker Login') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+
+                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                sh 'docker push $IMAGE_NAME:$TAG'
+            }
+        }
+
+        stage('Deploy Container') {
+            steps {
+                sh '''
+                docker rm -f $CONTAINER_NAME || true
+
+                docker run -d \
+                -p 9559:80 \
+                --name $CONTAINER_NAME \
+                $IMAGE_NAME:$TAG
+                '''
+            }
+        }
+    }
+}

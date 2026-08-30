@@ -1,0 +1,87 @@
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = "softapp/docker-ec2-web"
+        TAG = "${BUILD_NUMBER}"
+        CONTAINER_NAME = "docker-ec2-container"
+    }
+
+    stages {
+
+        stage('Clone Code') {
+            steps {
+                git branch: 'main',
+                    credentialsId: 'gitlab-creds',
+                    url: 'https://gitlab.com/SOFTen-TECHNOLOGIES/docker-ec2-web.git'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh '''
+                docker build -t $IMAGE_NAME:$TAG .
+                docker tag $IMAGE_NAME:$TAG $IMAGE_NAME:latest
+                '''
+            }
+        }
+
+        stage('Docker Login') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                sh '''
+                docker push $IMAGE_NAME:$TAG
+                docker push $IMAGE_NAME:latest
+                '''
+            }
+        }
+
+        stage('Deploy Container') {
+            steps {
+                sh '''
+                docker rm -f $CONTAINER_NAME || true
+
+                docker run -d \
+                  --name $CONTAINER_NAME \
+                  -p 9559:80 \
+                  $IMAGE_NAME:$TAG
+                '''
+            }
+        }
+
+        stage('Docker Logout') {
+            steps {
+                sh 'docker logout'
+            }
+        }
+
+        stage('Cleanup') {
+            steps {
+                sh 'docker image prune -f'
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Deployment successful.'
+        }
+        failure {
+            echo 'Deployment failed.'
+        }
+        always {
+            cleanWs()
+        }
+    }
+}
